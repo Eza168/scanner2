@@ -1,0 +1,377 @@
+
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Hicas</title>
+    <link href="https://fonts.googleapis.com/css2?family=Open+Sans:wght@300;400;600;800&display=swap" rel="stylesheet">
+    <style>
+        body {
+            background-color: #111;
+            color: #fff;
+            font-family: 'Open Sans', sans-serif;
+            text-align: center;
+        }
+        .button-group {
+            margin-top: 20px;
+            display: flex;
+            justify-content: center;
+        }
+        .button-group input[type="radio"] {
+            display: none;
+        }
+        .button-group label {
+            background-color: #333;
+            color: #fff;
+            padding: 10px 20px;
+            border: 2px solid #555;
+            border-radius: 5px;
+            margin: 0 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        .button-group label:hover {
+            background-color: #555;
+        }
+        .button-group input[type="radio"]:checked + label {
+            background-color: #007bff;
+            border-color: #0056b3;
+        }
+        .info {
+            color: #0f0;
+            margin-top: 20px;
+        }
+        .error {
+            color: #f00;
+            margin-top: 20px;
+        }
+        .result {
+            color: #00f;
+            margin-top: 20px;
+        }
+        .success {
+            color: #0f0;
+            margin-top: 20px;
+        }
+        input[type="submit"] {
+            background-color: #007bff;
+            color: #fff;
+            border: none;
+            padding: 10px 20px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background-color 0.3s ease;
+        }
+        input[type="submit"]:hover {
+            background-color: #0056b3;
+        }
+        .file-detail {
+            margin-top: 10px;
+            background-color: #222;
+            padding: 10px;
+            border-radius: 5px;
+            text-align: left;
+        }
+        .file-detail pre {
+            background-color: #333;
+            padding: 10px;
+            border-radius: 5px;
+            overflow: auto;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+    </style>
+</head>
+<body>
+    <h1>Backdoor Scanner</h1>
+    <h1 style="font-size: 18px;">Created by <a href="https://t.me/GrazzMean" style="text-decoration: none; color: blue;">@GrazzMean</a></h1>
+    <form method="POST">
+        <div class="button-group">
+            <input type="radio" id="home_folder" name="scan_option" value="home_folder">
+            <label for="home_folder">Home Folder</label>
+            
+            <input type="radio" id="full_scan" name="scan_option" value="full_scan">
+            <label for="full_scan">Full Scan ( / )</label>
+            
+            <input type="radio" id="this_dir" name="scan_option" value="this_dir">
+            <label for="this_dir">This Directory</label>
+        </div>
+        <br>
+        <div class="custom-path">
+            <label for="custom_path">Custom Path : </label>
+            <input type="text" id="custom_path" name="custom_path" size="20" style="height: 25px;">
+        </div>
+        <br>
+        <input type="checkbox" id="remove_files" name="remove_files">
+        <label for="remove_files">Remove all detected files after scan</label>
+        <br><br>
+        <input type="submit" value="Start Scan">
+    </form>
+
+</body>
+</html>
+
+<?php
+session_start();
+@set_time_limit(0);
+@clearstatcache();
+@ini_set('error_log', NULL);
+@ini_set('log_errors', 0);
+@ini_set('max_execution_time', 0);
+@ini_set('output_buffering', 0);
+@ini_set('display_errors', 0);
+
+define("MAX_SIZE_MB", 10); // max size bytes can read (default 5 mb but you can change if you want)
+$max_size_bytes = MAX_SIZE_MB * 1024 * 1024;
+
+$backdoorKeywords = [
+    "passthru", "pcntl_exec", "backconnect",
+    "base64_decode", "base64_encode", "shell_exec",
+    "SISTEMIT_COM_ENC", "php_uname", "rooting",
+    "mailer", "str_rot13", '<?php ${"\x47', "exec", "proc_open", "backdoor", "webshell", "shell",
+    "eval", "hacker", "hacked", "pwnkit", "cmd", "disable_functions", "/etc/passwd", "/etc/hosts", "uname", "file_get_contents",
+    "Uname"
+];
+
+$backdoor_detected = 0;
+$backdoor_filepath = isset($_SESSION['backdoor_filepath']) ? $_SESSION['backdoor_filepath'] : [];
+
+function get_home_directory() {
+    // $home = getenv('HOME');
+    // if (empty($home)) {
+    //     if (!empty($_SERVER['HOMEDRIVE']) && !empty($_SERVER['HOMEPATH'])) {
+    //         $home = $_SERVER['HOMEDRIVE'] . $_SERVER['HOMEPATH'];
+    //     }
+    // }
+    // return empty($home) ? NULL : $home;
+    
+
+    $home = $_SERVER['HOME'];
+    if (!$home) {
+        $home = getenv('HOME');
+        if (empty($home)) {
+            if (!empty($_SERVER['HOMEDRIVE']) && !empty($_SERVER['HOMEPATH'])) {
+                $home = $_SERVER['HOMEDRIVE'] . $_SERVER['HOMEPATH'];
+            }
+        } 
+    }
+
+    
+    return $home;
+}
+
+function read_file_content($file_path, $max_size_bytes) {
+    try {
+        $filesize = filesize($file_path);
+        if ($filesize > $max_size_bytes) {
+            return null;
+        }
+        $file_text = file_get_contents($file_path);
+        return $file_text;
+    } catch (Exception $e) {
+        return null;
+    }
+}
+
+function isBackdoor($file_path, $backdoorKeywords, $max_size_bytes, &$backdoor_detected, &$backdoor_filepath, $dontdeleteme_darling) {
+    $file_content = read_file_content($file_path, $max_size_bytes);
+    if ($file_content === null) {
+        return false;
+    }
+    $backdoor_found = false;
+    $keyword_detected_count = 0;
+    foreach ($backdoorKeywords as $keyword) {
+        if (stripos($file_content, $keyword) !== false && $file_path !== $dontdeleteme_darling && str_starts_with($file_content, "<?php")) {
+            
+            $keyword_detected_count++;
+            
+        }
+    }
+
+    if ($keyword_detected_count > 0) {
+        $backdoor_detected++;
+        $backdoor_found = true;
+        $backdoor_filepath[$file_path] = $keyword_detected_count;
+    }
+
+    return $backdoor_detected;
+}
+
+function directory_enumeration($path, &$file_list = []) {
+    $scan = scandir($path);
+    foreach ($scan as $enu) {
+        if ($enu == '.' || $enu == '..') {
+            continue;
+        }
+        $full_path = $path . DIRECTORY_SEPARATOR . $enu;
+        if (is_dir($full_path)) {
+            directory_enumeration($full_path, $file_list);
+        } else if (file_exists($full_path)) {
+            $file_list[] = $full_path;
+        }
+    }
+    return $file_list;
+}
+
+function start_scan($scan_option, $remove_files, $custom_path) {
+    global $backdoorKeywords, $max_size_bytes, $backdoor_detected, $backdoor_filepath;
+    
+    // Reset backdoor_filepath array before starting new scan
+    $_SESSION['backdoor_filepath'] = [];
+
+    $directory_to_scan = null;
+    if (strlen($custom_path) > 0) {
+        if (!is_dir($custom_path)) {
+            echo "<p class='error'>Custom Path : $custom_path is not exist/dir</p>";
+            return;
+        }
+        $directory_to_scan = $custom_path;
+
+    } else {
+        switch ($scan_option) {
+            case 'home_folder':
+                $directory_to_scan = get_home_directory();
+                break;
+            case 'full_scan':
+                $directory_to_scan = '/';
+                break;
+            case 'this_dir':
+                $directory_to_scan = getcwd();
+                break;
+            default:
+                echo "<p class='error'>Invalid scan option selected.</p>";
+                return;
+        }
+    }
+    
+    if (!$directory_to_scan) {
+        echo "<p class='error'>No directory to scan</p>";
+        return;
+    }
+
+    $file_list = directory_enumeration($directory_to_scan);
+    if (empty($file_list)) {
+        echo "<p class='error'>No files found in the directory.</p>";
+        return;
+    }
+
+    $total_files = count($file_list);
+    echo "<p class='info'>[+] Total files to scan: " . htmlspecialchars($total_files) . "</p>";
+    echo "<p class='info'>[+] Starting file scan...</p>";
+    $ext = pathinfo(__FILE__, PATHINFO_EXTENSION);
+    $dontdeleteme_darling = getcwd() . "/" . basename(__FILE__, '.' . $ext) . '.' . $ext;
+    foreach ($file_list as $file_path) {
+        $is_backdoor = isBackdoor($file_path, $backdoorKeywords, $max_size_bytes, $backdoor_detected, $backdoor_filepath, $dontdeleteme_darling);
+        // if ($is_backdoor && $show_detectedfiles) {
+        //     echo "<p class='info'>[+] Backdoor keywords detected in: " . htmlspecialchars($file_path) . "</p>";
+        // }
+    }
+
+    if ($backdoor_detected <= 0) {
+        echo "<p class='error'>No Backdoor Detected.</p>";
+        return;
+    }
+    echo "<p class='result'>Total Backdoors Detected: " . htmlspecialchars($backdoor_detected) . "</p>";
+
+    $_SESSION['backdoor_filepath'] = $backdoor_filepath;
+
+    if ($remove_files) {
+        foreach ($backdoor_filepath as $file_path) {
+            if (file_exists($file_path)) {
+                if (unlink($file_path)) {
+                    echo "<p class='success'>File removed successfully: " . htmlspecialchars($file_path) . "</p>";
+                } else {
+                    echo "<p class='error'>Failed to remove file: " . htmlspecialchars($file_path) . "</p>";
+                }
+            } else {
+                echo "<p class='error'>File not found or already removed: " . htmlspecialchars($file_path) . "</p>";
+            }
+        }
+    } else {
+        // echo '<form method="POST">
+        //     <input type="hidden" name="remove_all_files" value="1">
+        //     <input type="submit" value="Remove All Detected Files">
+        // </form>';
+        if (isset($_SESSION['backdoor_filepath']) && !empty($_SESSION['backdoor_filepath'])) {
+            // Mengurutkan array berdasarkan nilai $keyword_detected_count dalam urutan menurun
+            arsort($_SESSION['backdoor_filepath']);
+            
+            echo '<form method="POST">';
+            foreach ($_SESSION['backdoor_filepath'] as $file_path => $keyword_detected_count) {
+                echo '<div class="file-detail">';
+                echo '<input type="checkbox" name="files_to_delete[]" value="' . htmlspecialchars($file_path) . '">';
+                echo '<label>' . htmlspecialchars($file_path) . ' <font color="red"> | Backdoor keyword detected</font> : ' . $keyword_detected_count . '</label>';
+                echo "<details>";
+                echo "<summary>Show file contents</summary>";
+                echo '<pre>' . htmlspecialchars(file_get_contents($file_path)) . '</pre>';
+                echo '</details>';
+                echo '</div>';
+            }
+            echo '<br><div style="display: flex; gap: 10px; justify-content: center;">';
+            echo '<input type="submit" name="delete_selected_files" value="Delete Selected Files">';
+            echo '</form>';
+            echo '<form method="POST">
+                    <input type="hidden" name="remove_all_files" value="1">
+                    <input type="submit" value="Remove All Detected Files">
+                  </form>';
+            echo '</div>';
+        }
+        
+        
+    }
+
+    ob_end_flush();
+}
+
+if ($_SERVER['REQUEST_METHOD'] === 'POST') {
+    if (isset($_POST['remove_all_files'])) {
+        foreach ($_SESSION['backdoor_filepath'] as $file_path) {
+            if (file_exists($file_path)) {
+                if (unlink($file_path)) {
+                    echo "<p class='success'>File removed successfully: " . htmlspecialchars($file_path) . "</p>";
+                } else {
+                    echo "<p class='error'>Failed to remove file: " . htmlspecialchars($file_path) . "</p>";
+                }
+            } else {
+                echo "<p class='error'>File not found or already removed: " . htmlspecialchars($file_path) . "</p>";
+            }
+        }
+        // Clear the session variable after files are removed
+        unset($_SESSION['backdoor_filepath']);
+        return;
+    }
+
+    if (isset($_POST['delete_selected_files']) && !empty($_POST['files_to_delete'])) {
+        $files_to_delete = $_POST['files_to_delete'];
+        foreach ($files_to_delete as $file_path) {
+            if (file_exists($file_path)) {
+                if (unlink($file_path)) {
+                    echo "<p class='success'>File removed successfully: " . htmlspecialchars($file_path) . "</p>";
+                } else {
+                    echo "<p class='error'>Failed to remove file: " . htmlspecialchars($file_path) . "</p>";
+                }
+            } else {
+                echo "<p class='error'>File not found or already removed: " . htmlspecialchars($file_path) . "</p>";
+            }
+        }
+        // Clear the session variable for deleted files
+        $_SESSION['backdoor_filepath'] = array_diff($_SESSION['backdoor_filepath'], $files_to_delete);
+        return;
+    }
+    
+    // Clear backdoor_filepath session variable if not performing any action
+    unset($_SESSION['backdoor_filepath']);
+    $backdoor_filepath = [];
+    // session_unset();
+    
+    $scan_option = isset($_POST['scan_option']) ? $_POST['scan_option'] : '';
+    $remove_files = isset($_POST['remove_files']) ? true : false;
+    $custom_path = isset($_POST['custom_path']) ? $_POST['custom_path'] : '';
+    if (empty($scan_option) && empty($custom_path)) {
+        echo "<p class='error'>Please select a scan option.</p>";
+    } else {
+        start_scan($scan_option, $remove_files, $custom_path);
+    }
+}
+?>
